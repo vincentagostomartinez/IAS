@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exclusive Keyboard Typing Game - Debounce & Throttle</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #121212;
+      color: #eee;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #game-container {
+      background: #1a1a1a;
+      padding: 30px 40px;
+      border-radius: 14px;
+      width: 420px;
+      box-shadow: 0 0 20px #00fff7cc;
+      user-select: none;
+      text-align: center;
+    }
+    h1 {
+      margin-bottom: 1rem;
+      color: #00fff7;
+      letter-spacing: 1.2px;
+    }
+    #wordDisplay {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 25px;
+      color: #00d5d5;
+      letter-spacing: 0.1em;
+      min-height: 56px;
+    }
+    #inputField {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 24px;
+      border-radius: 10px;
+      border: none;
+      outline: none;
+      background: #222;
+      color: #eee;
+      box-sizing: border-box;
+      transition: border 0.3s ease;
+    }
+    #inputField.correct {
+      border: 3px solid #00ffae;
+      background: #004d35;
+    }
+    #inputField.wrong {
+      border: 3px solid #ff4c4c;
+      background: #4d0000;
+    }
+    #inputField:disabled {
+      cursor: not-allowed;
+      opacity: 0.8;
+    }
+    #feedback {
+      margin-top: 15px;
+      font-weight: 700;
+      min-height: 28px;
+      font-size: 20px;
+    }
+    #timer {
+      margin-top: 15px;
+      font-size: 18px;
+      color: #00d5d5;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+    #nextBtn {
+      margin-top: 25px;
+      padding: 12px 30px;
+      font-size: 18px;
+      border: none;
+      border-radius: 10px;
+      background: #00fff7;
+      color: #121212;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      user-select: none;
+    }
+    #nextBtn:disabled {
+      background: #005757;
+      cursor: not-allowed;
+    }
+    #nextBtn:hover:not(:disabled) {
+      background: #00c6c6;
+    }
+    #resultScreen {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #00fff7;
+      user-select: text;
+    }
+    #restartBtn {
+      margin-top: 20px;
+      padding: 12px 30px;
+      font-size: 18px;
+      border: none;
+      border-radius: 10px;
+      background: #00fff7;
+      color: #121212;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      user-select: none;
+      display: none;
+    }
+    #restartBtn:hover {
+      background: #00c6c6;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container" role="main" aria-label="Keyboard typing game with debounce and throttle">
+    <h1>Keyboard Typing Game</h1>
+    <div id="wordDisplay" aria-live="polite"></div>
+    <input type="text" id="inputField" placeholder="Type the word here" autocomplete="off" spellcheck="false" aria-describedby="feedback timer" />
+    <div id="feedback" aria-live="assertive"></div>
+    <div id="timer" aria-live="polite"></div>
+    <button id="nextBtn" disabled>Next Word</button>
+    <div id="resultScreen"></div>
+    <button id="restartBtn">Play Again</button>
+  </div>
+
+  <script>
+    // Word list for the game
+    const words = ['magic', 'keyboard', 'javascript', 'throttle', 'debounce', 'function', 'async', 'promise', 'event', 'listener'];
+
+    // Game state variables
+    let currentIndex = 0;
+    let correctCount = 0;
+    let debounceTimeout = null;
+    let countdownInterval = null;
+    const maxTime = 7; // seconds allowed per word
+    let timeLeft = maxTime;
+    let gameOver = false;
+
+    // Throttle function (for Next button)
+    function throttle(func, limit) {
+      let inThrottle;
+      return function() {
+        if (!inThrottle) {
+          func.apply(this, arguments);
+          inThrottle = true;
+          setTimeout(() => inThrottle = false, limit);
+        }
+      };
+    }
+
+    // DOM elements
+    const wordDisplay = document.getElementById('wordDisplay');
+    const inputField = document.getElementById('inputField');
+    const feedback = document.getElementById('feedback');
+    const timerDisplay = document.getElementById('timer');
+    const nextBtn = document.getElementById('nextBtn');
+    const resultScreen = document.getElementById('resultScreen');
+    const restartBtn = document.getElementById('restartBtn');
+
+    // Initialize game
+    function startGame() {
+      currentIndex = 0;
+      correctCount = 0;
+      gameOver = false;
+
+      resultScreen.textContent = '';
+      restartBtn.style.display = 'none';
+      nextBtn.disabled = true;
+
+      inputField.disabled = false;
+      inputField.value = '';
+      inputField.className = '';
+      inputField.focus();
+
+      feedback.textContent = '';
+      timerDisplay.textContent = '';
+
+      showWord(words[currentIndex]);
+      startTimer();
+    }
+
+    // Show word
+    function showWord(word) {
+      wordDisplay.textContent = word;
+    }
+
+    // Start countdown timer for current word
+    function startTimer() {
+      clearInterval(countdownInterval);
+      timeLeft = maxTime;
+      timerDisplay.textContent = `Time left: ${timeLeft}s`;
+      countdownInterval = setInterval(() => {
+        timeLeft--;
+        timerDisplay.textContent = `Time left: ${timeLeft}s`;
+        if (timeLeft <= 0) {
+          clearInterval(countdownInterval);
+          finishCheck(true);
+        }
+      }, 1000);
+    }
+
+    // Check input with debounce (after 500ms of no typing)
+    inputField.addEventListener('input', () => {
+      if (gameOver || inputField.disabled) return;
+      feedback.textContent = '';
+      inputField.className = '';
+      nextBtn.disabled = true;
+
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      debounceTimeout = setTimeout(() => {
+        finishCheck();
+      }, 500);
+    });
+
+    // Finish check - either forced by timer or debounce
+    function finishCheck(forced = false) {
+      if (debounceTimeout) {
+        clearTimeout(debounceTimeout);
+        debounceTimeout = null;
+      }
+      if (gameOver) return;
+
+      const typed = inputField.value.trim().toLowerCase();
+      const currentWord = words[currentIndex].toLowerCase();
+
+      if (typed === currentWord) {
+        clearInterval(countdownInterval);
+        inputField.disabled = true;
+        feedback.textContent = 'Correct!';
+        feedback.style.color = '#00ffae';
+        inputField.className = 'correct';
+        correctCount++;
+        nextBtn.disabled = false;
+      } else if (forced) {
+        clearInterval(countdownInterval);
+        inputField.disabled = true;
+        feedback.textContent = `Time's up! Correct word was: "${words[currentIndex]}"`;
+        feedback.style.color = '#ff4c4c';
+        inputField.className = 'wrong';
+        nextBtn.disabled = false;
+      } else {
+        feedback.textContent = 'Keep typing...';
+        feedback.style.color = '#ffcc00';
+        inputField.className = 'wrong';
+        nextBtn.disabled = true;
+      }
+    }
+
+    // Next button handler with throttle to prevent spamming
+    const handleNext = throttle(() => {
+      if (gameOver) return;
+      currentIndex++;
+      if (currentIndex >= words.length) {
+        endGame();
+      } else {
+        feedback.textContent = '';
+        inputField.value = '';
+        inputField.disabled = false;
+        inputField.className = '';
+        inputField.focus();
+        nextBtn.disabled = true;
+        showWord(words[currentIndex]);
+        startTimer();
+      }
+    }, 800);
+
+    nextBtn.addEventListener('click', handleNext);
+
+    // End game
+    function endGame() {
+      gameOver = true;
+      wordDisplay.textContent = '';
+      inputField.style.display = 'none';
+      timerDisplay.textContent = '';
+      nextBtn.style.display = 'none';
+      feedback.textContent = '';
+      resultScreen.textContent = `Game Over! You typed correctly ${correctCount} out of ${words.length} words.`;
+      restartBtn.style.display = 'inline-block';
+    }
+
+    // Restart game
+    restartBtn.addEventListener('click', () => {
+      inputField.style.display = '';
+      nextBtn.style.display = '';
+      startGame();
+    });
+
+    // Start on page load
+    startGame();
+
+  </script>
+</body>
+</html>
